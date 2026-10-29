@@ -5,6 +5,7 @@
  * - `git push` to a protected branch (main/master by default), force pushes and `--all`/`--mirror`
  * - destructive shell commands (rm -rf, git reset --hard, git clean -f, ...)
  * - write/edit of protected files (.env, keys, lockfiles, .git/)
+ * - opening an Azure DevOps pull request with pitk_azure_devops pr_create
  *
  * With a UI it asks for confirmation; without one (print/RPC mode) it blocks.
  * Config: ~/.pi/agent/guard.json (personal, can change everything) and .pi/guard.json
@@ -114,6 +115,18 @@ export default function (pi: ExtensionAPI) {
 				const reasons = dangerousCommandReasons(command);
 				if (reasons.length > 0) return decide(ctx, config, reasons.join(", "), `Command:\n  ${command}`);
 			}
+		}
+
+		// Opening a pull request is visible to the whole team, so it always needs a yes.
+		if (event.toolName === "pitk_azure_devops" && event.input.action === "pr_create") {
+			const i = event.input;
+			const items = Array.isArray(i.workItemIds) && i.workItemIds.length > 0 ? `\nWork items: ${i.workItemIds.join(", ")}` : "";
+			return decide(
+				ctx,
+				config,
+				"open an Azure DevOps pull request",
+				`Title: ${i.title}\n${i.sourceBranch ?? "(current branch)"} -> ${i.targetBranch ?? "(default branch)"}${i.draft ? " (draft)" : ""}${items}`,
+			);
 		}
 
 		if (event.toolName === "write" || event.toolName === "edit") {

@@ -1,7 +1,7 @@
 {
 	"name": "pi-toolkit",
-	"version": "0.1.0",
-	"description": "Pi package: a safety guard, Azure DevOps and dotnet tools, and PR review / .NET skills",
+	"version": "0.2.0",
+	"description": "Pi package: a safety guard, subagents, Azure DevOps and dotnet tools, and skills for tickets, reviews, .NET, TypeScript, Vitest and Playwright",
 	"type": "module",
 	"license": "MIT",
 	"author": "knoppies999",
@@ -17,6 +17,7 @@
 	],
 	"files": [
 		"extensions",
+		"agents",
 		"skills",
 		"prompts",
 		"CHANGELOG.md",
@@ -27,7 +28,8 @@
 		"extensions": [
 			"extensions/guard/index.ts",
 			"extensions/azure-devops/index.ts",
-			"extensions/dotnet/index.ts"
+			"extensions/dotnet/index.ts",
+			"extensions/subagent/index.ts"
 		],
 		"skills": [
 			"skills/*"
