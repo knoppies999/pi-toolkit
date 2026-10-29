@@ -1,10 +1,12 @@
 /**
  * Azure DevOps Extension
  *
- * Registers a read-only `pitk_azure_devops` tool for pull requests and work items, using the REST API (7.1).
+ * Registers a `pitk_azure_devops` tool for pull requests and work items, using the REST API (7.1).
+ * Every action reads, except `pr_create`, which the guard extension asks you to confirm.
  *
  * Auth, first match wins:
- * - AZURE_DEVOPS_PAT or AZURE_DEVOPS_EXT_PAT: personal access token (Code: Read, Work Items: Read)
+ * - AZURE_DEVOPS_PAT or AZURE_DEVOPS_EXT_PAT: personal access token (Code: Read, plus Code: Read & write
+ *   for pr_create; Work Items: Read)
  * - Azure CLI: an Entra ID token from `az account get-access-token`, when `az` is installed and logged in
  * - SYSTEM_ACCESSTOKEN: the Azure Pipelines job token
  *
@@ -21,14 +23,20 @@ import { type AzureRepo, htmlToText, parseAzureRemote } from "./remote.ts";
 const API_VERSION = "7.1";
 
 const Params = Type.Object({
-	action: StringEnum(["pr_list", "pr_get", "pr_threads", "pr_changes", "work_item"] as const, {
+	action: StringEnum(["pr_list", "pr_get", "pr_threads", "pr_changes", "work_item", "pr_create"] as const, {
 		description:
-			"pr_list: list pull requests. pr_get: PR details and linked work items. pr_threads: review comment threads. pr_changes: files changed in the latest iteration. work_item: one work item.",
+			"pr_list: list pull requests. pr_get: PR details and linked work items. pr_threads: review comment threads. pr_changes: files changed in the latest iteration. work_item: one work item. pr_create: open a pull request from an already pushed branch (asks the user first).",
 	}),
 	id: Type.Optional(Type.Number({ description: "Pull request id (pr_get, pr_threads, pr_changes) or work item id (work_item)" })),
 	status: Type.Optional(
 		StringEnum(["active", "completed", "abandoned", "all"] as const, { description: "pr_list filter (default active)" }),
 	),
+	title: Type.Optional(Type.String({ description: "pr_create: pull request title" })),
+	description: Type.Optional(Type.String({ description: "pr_create: pull request description (Markdown)" })),
+	sourceBranch: Type.Optional(Type.String({ description: "pr_create: pushed branch to merge from (default: current git branch)" })),
+	targetBranch: Type.Optional(Type.String({ description: "pr_create: branch to merge into (default: the repository's default branch)" })),
+	workItemIds: Type.Optional(Type.Array(Type.Number(), { description: "pr_create: work items to link to the pull request" })),
+	draft: Type.Optional(Type.Boolean({ description: "pr_create: open as a draft (default false)" })),
 	orgUrl: Type.Optional(Type.String({ description: "Organization URL, e.g. https://dev.azure.com/contoso. Defaults to the git remote." })),
 	project: Type.Optional(Type.String({ description: "Project name. Defaults to the git remote." })),
 	repository: Type.Optional(Type.String({ description: "Repository name. Defaults to the git remote." })),
@@ -113,10 +121,16 @@ export default function (pi: ExtensionAPI) {
 		return { orgUrl, project, repository };
 	}
 
-	async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
+	async function request<T>(method: "GET" | "POST", url: string, signal?: AbortSignal, body?: unknown): Promise<T> {
 		const sep = url.includes("?") ? "&" : "?";
 		const response = await fetch(`${url}${sep}api-version=${API_VERSION}`, {
-			headers: { Authorization: await authHeader(), Accept: "application/json" },
+			method,
+			headers: {
+				Authorization: await authHeader(),
+				Accept: "application/json",
+				...(body === undefined ? {} : { "Content-Type": "application/json" }),
+			},
+			body: body === undefined ? undefined : JSON.stringify(body),
 			signal,
 		});
 		// 203 is the sign-in page Azure DevOps returns instead of 401 for some bad credentials.
@@ -133,17 +147,27 @@ export default function (pi: ExtensionAPI) {
 		return (await response.json()) as T;
 	}
 
+	const get = <T>(url: string, signal?: AbortSignal) => request<T>("GET", url, signal);
+
+	async function currentGitBranch(cwd: string): Promise<string | undefined> {
+		const result = await pi.exec("git", ["branch", "--show-current"], { cwd, timeout: 5000 }).catch(() => undefined);
+		return result?.code === 0 ? result.stdout.trim() || undefined : undefined;
+	}
+
+	const ref = (b: string) => (b.startsWith("refs/") ? b : `refs/heads/${b}`);
+
 	pi.registerTool({
 		name: "pitk_azure_devops",
 		label: "Azure DevOps",
-		description: `Read Azure DevOps pull requests (list, details, comment threads, changed files) and work items. Read-only. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
-		promptSnippet: "Read Azure DevOps pull requests, review threads and work items",
+		description: `Read Azure DevOps pull requests (list, details, comment threads, changed files) and work items, and open pull requests (pr_create, which asks the user first). Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+		promptSnippet: "Read Azure DevOps pull requests, review threads and work items; open pull requests",
 		promptGuidelines: [
 			"Use pitk_azure_devops instead of guessing PR or work item contents; it infers org, project and repo from the git remote.",
 			"For a PR review, call pr_get, then pr_changes, then pr_threads so you do not repeat comments that already exist.",
+			"Only call pr_create when the user asked for a pull request, after the branch is pushed; link the work items it implements.",
 		],
 		parameters: Params,
-		annotations: { readOnlyHint: true, openWorldHint: true },
+		annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const { orgUrl, project, repository } = await resolveRepo(ctx.cwd, params);
@@ -230,6 +254,35 @@ export default function (pi: ExtensionAPI) {
 					for (const c of files) out.push(`${c.changeType}\t${c.item?.path ?? c.originalPath}`);
 					out.push("", "Read the files locally or run `git diff` against the target branch for the content.");
 					details = { ...details, id, iteration: last.id, files: files.length };
+					break;
+				}
+
+				case "pr_create": {
+					if (!params.title) throw new Error("pr_create needs title");
+					const source = params.sourceBranch ?? (await currentGitBranch(ctx.cwd));
+					if (!source) throw new Error("pr_create needs sourceBranch (no current git branch found)");
+					let target = params.targetBranch;
+					if (!target) {
+						const repo = await get<{ defaultBranch?: string }>(repoUrl, signal);
+						if (!repo.defaultBranch) throw new Error("The repository has no default branch; pass targetBranch");
+						target = repo.defaultBranch;
+					}
+					if (ref(source) === ref(target)) throw new Error(`Source and target are both ${branch(ref(target))}`);
+
+					const pr = await request<any>("POST", `${repoUrl}/pullrequests`, signal, {
+						sourceRefName: ref(source),
+						targetRefName: ref(target),
+						title: params.title,
+						description: params.description ?? "",
+						isDraft: params.draft ?? false,
+						workItemRefs: (params.workItemIds ?? []).map((id) => ({ id: String(id) })),
+					});
+					const webUrl = `${orgUrl}/${encodeURIComponent(project)}/_git/${encodeURIComponent(repository ?? "")}/pullrequest/${pr.pullRequestId}`;
+					out.push(`Created PR !${pr.pullRequestId}${pr.isDraft ? " (draft)" : ""}: ${pr.title}`);
+					out.push(`${branch(pr.sourceRefName)} -> ${branch(pr.targetRefName)}`);
+					if (params.workItemIds?.length) out.push(`Linked work items: ${params.workItemIds.map((id) => `#${id}`).join(", ")}`);
+					out.push(webUrl);
+					details = { ...details, id: pr.pullRequestId, url: webUrl };
 					break;
 				}
 
