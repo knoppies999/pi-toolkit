@@ -1,6 +1,6 @@
 {
 	"name": "pi-toolkit",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Pi package: a safety guard, subagents, Azure DevOps and dotnet tools, and skills for tickets, reviews, .NET, TypeScript, Vitest and Playwright",
 	"type": "module",
 	"license": "MIT",
