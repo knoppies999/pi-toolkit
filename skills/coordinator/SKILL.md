@@ -54,6 +54,10 @@ Run `/pitk-agents` to list them. The bundled ones:
 - Ask for facts with `path:line`, not opinions.
 - Use `chain` when each step needs the previous one's output: `{previous}` in a task is replaced by the prior agent's final answer.
 
+## Autonomous mode
+
+When the guard's "AUTONOMOUS MODE IS ON" message is in the conversation, the user is not watching. Do not ask them to approve plans. Make the calls a senior engineer would, record them, and stop with a line starting `NEEDS DECISION:` only for unclear requirements that change the outcome, schema changes or migrations, breaking API or contract changes, or a step the guard blocks. You remain responsible for checking every subagent report against the code; nobody else will.
+
 ## Limits
 
 - Subagents have no UI. The guard extension blocks risky actions in them (pushing to main, `rm -rf`, editing secrets, opening PRs) instead of asking. Do those steps yourself, in this session, where the user can approve them.

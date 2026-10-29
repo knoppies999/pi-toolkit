@@ -4,7 +4,7 @@ A [Pi](https://pi.dev) package for day-to-day work on .NET, TypeScript and Azure
 
 | Resource | Type | What it does |
 |---|---|---|
-| `guard` | extension (hook) | Asks before, or blocks, `git push` to main/master, force pushes, `rm -rf`-style commands, edits to secrets, keys, lockfiles and `.git/`, and opening pull requests |
+| `guard` | extension (hook) | Asks before, or blocks, `git push` to main/master, force pushes, `rm -rf`-style commands, edits to secrets, keys, lockfiles and `.git/`, databases and systems outside an allowlist, and opening pull requests. Also provides [autonomous mode](#autonomous-mode) |
 | `pitk_subagent` | extension (tool) | Runs agents in separate `pi` processes with their own context: one, several in parallel, or chained |
 | `pitk_azure_devops` | extension (tool) | Azure DevOps PRs (details, changed files, comment threads), work items, and opening PRs linked to work items |
 | `pitk_dotnet` | extension (tool) | Runs `dotnet build` / `dotnet test` and returns only errors with file:line and failed tests with message and stack trace |
@@ -59,7 +59,9 @@ Hooks Pi's `tool_call` event. When the agent tries one of the following, you get
 - force pushes (`--force`, `-f`, `--force-with-lease`, `+refspec`), `--all`, `--mirror` and branch deletes
 - `rm -rf`, `Remove-Item -Recurse -Force`, `git reset --hard`, `git clean -f`, `git checkout .`, `git branch -D`
 - `write` or `edit` of `.env`, `.env.*`, `*.pem`, `*.pfx`, `*.key`, `secrets.json`, `.git/**` and lockfiles
-- opening a pull request with `pitk_azure_devops` `pr_create` (always asked about, never allowed silently)
+- opening a pull request with `pitk_azure_devops` `pr_create` (asked about; allowed only in [autonomous mode](#autonomous-mode))
+- commands that reach **databases** (`sqlcmd`, `psql`, `mysql`, `mongosh`, `redis-cli`, `Invoke-Sqlcmd`, `sqlpackage`, `dotnet ef database ...`) or send **HTTP writes** (`curl -X POST`, `-d`, `Invoke-RestMethod -Method Post`, ...) to a host that is not on `allowHosts`, or with no explicit host at all
+- **infrastructure and publishing** commands (`kubectl`, `helm`, `terraform`, `az`, `azd`, `func`, `aws`, `gcloud`, `npm publish`, `dotnet nuget push`, `docker push`, ...) unless they match `allowCommands`. Read-only forms such as `--version`, `terraform validate` and `helm template` are fine.
 
 It checks both the `bash` and the `powershell` tools. Commands you type yourself with `!` are not checked.
 
@@ -74,14 +76,19 @@ Personal config, `~/.pi/agent/guard.json`. Every key is optional:
   "mode": "confirm",
   "protectedBranches": ["main", "master", "develop"],
   "extraPaths": ["**/appsettings.Production.json"],
-  "dangerousCommands": true
+  "dangerousCommands": true,
+  "extraAllowHosts": ["sql-dev-01", "*.dev.contoso.internal"],
+  "allowCommands": ["^kubectl --context kind-dev\\b", "^docker push localhost:5000/"]
 }
 ```
 
 - `mode`: `"confirm"` asks; `"block"` always blocks.
 - `protectedPaths` replaces the default list; `extraPaths` adds to it.
+- `allowHosts` replaces the default host allowlist (`localhost`, `127.0.0.1`, `::1`, `(localdb)`, `.`, `host.docker.internal`, `*.localhost`, `*.test`); `extraAllowHosts` adds to it. `*` matches within a host name.
+- `allowCommands`: regular expressions matched against the whole command, for infrastructure or publish commands you deliberately allow.
+- `schemaPaths`: files whose change needs a human decision in autonomous mode (default: `**/Migrations/**`, `**/migrations/**`, `**/*.sql`, `**/schema.prisma`, `**/*.dacpac`, `**/*.sqlproj`).
 
-Project config, `.pi/guard.json` in the repository, can only **add** protection (`protectedBranches`, `protectedPaths`, `extraPaths`, `"mode": "block"`). That way a repository you clone cannot switch the guard off. If either file contains invalid JSON, every tool call is blocked until you fix it.
+Project config, `.pi/guard.json` in the repository, can only **add** protection (`protectedBranches`, `protectedPaths`, `extraPaths`, `schemaPaths`, `"mode": "block"`). It cannot add `allowHosts` or `allowCommands`. That way a repository you clone cannot switch the guard off or widen what it may reach. If either file contains invalid JSON, every tool call is blocked until you fix it.
 
 Branch names match exactly. Globs like `release/*` are not supported yet.
 
@@ -179,6 +186,40 @@ The `coordinator` skill is the pattern for bigger tasks. The main session frames
 9. push and open the PR linked to the work item (guard asks once more)
 
 It works without `pitk_subagent` too; it then does every step in the main session.
+
+## Autonomous mode
+
+For ticket to PR with no human in the loop, add `--auto`:
+
+```text
+/pitk-ticket 4821 --auto
+--auto use the coordinator skill to add a 50% cap to discounts, with tests
+/pitk-auto on        (or off, or status)
+```
+
+Only text **you** type can switch it on: `--auto` on a `/pitk-` command line, at the start of a prompt, or `/pitk-auto on`. The same words in a ticket, a file, a web page or another extension's message do nothing. The footer shows `AUTONOMOUS` while it is on; it stays on for the session until `/pitk-auto off`.
+
+What changes:
+
+| | Normal | Autonomous |
+|---|---|---|
+| Skill checkpoints (plan, before PR) | stop and wait for you | skipped; the plan and test results go into the PR description |
+| Guard: push to protected branch, force push, destructive commands, secrets, lockfiles | asks you | **blocked** |
+| Guard: databases, HTTP writes, infrastructure, publishing outside the allowlist | asks you | **blocked** |
+| Guard: schema files and `dotnet ef migrations add` | allowed (the plan checkpoint covers it) | **blocked**: needs your decision |
+| Opening the PR (`pr_create`) | asks you | allowed, as a ready PR, or a draft if tests are still red after 3 attempts |
+| Merging, completing or approving the PR | not possible | not possible |
+
+The agent stops early only for decisions it is not allowed to make: requirements that are unclear in a way that changes the outcome, schema changes, breaking API or contract changes, or a step the guard blocks. It ends its turn with `NEEDS DECISION:` and the question. You get a Windows notification when the run finishes or needs you.
+
+### Production safety: the guard is the second line
+
+The guard reads commands, so it cannot prove an action never touches production. A connection string read from `appsettings.json` by your app, a test that calls a real API, or an unusual tool can get past it. Make sure the agent **cannot** reach production in the first place:
+
+- Do not keep production connection strings or keys in the environment of the terminal you run Pi in. When autonomous mode switches on, the guard lists environment variables that look like connection strings to non-allowlisted hosts (names only) and tells the model not to use them.
+- Log `az` in to a dev subscription only, and use a kube context that cannot reach production.
+- Keep production settings out of the files the app loads in Development (`appsettings.Development.json`, user secrets).
+- Keep branch policies on `main` in Azure DevOps: required reviewers and build validation still apply to every PR the agent opens.
 
 ## Develop
 
