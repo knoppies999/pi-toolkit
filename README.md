@@ -5,13 +5,15 @@ A [Pi](https://pi.dev) package for day-to-day work on .NET and Azure DevOps code
 | Resource | Type | What it does |
 |---|---|---|
 | `guard` | extension (hook) | Asks before, or blocks, `git push` to main/master, force pushes, `rm -rf`-style commands, and edits to secrets, keys, lockfiles and `.git/` |
-| `azure_devops` | extension (tool) | Read-only access to Azure DevOps PRs (details, changed files, comment threads) and work items |
-| `dotnet` | extension (tool) | Runs `dotnet build` / `dotnet test` and returns only errors with file:line and failed tests with message and stack trace |
+| `pitk_azure_devops` | extension (tool) | Read-only access to Azure DevOps PRs (details, changed files, comment threads) and work items |
+| `pitk_dotnet` | extension (tool) | Runs `dotnet build` / `dotnet test` and returns only errors with file:line and failed tests with message and stack trace |
 | `pr-review` | skill | A review procedure: get the change, understand it, check correctness, security, breaking changes and tests, report ranked findings |
 | `dotnet-conventions` | skill | C# / .NET conventions to apply where the repository has none of its own |
-| `/review` | prompt template | `/review [PR id or branch] [focus]` runs the `pr-review` skill |
+| `/pitk-review` | prompt template | `/pitk-review [PR id or branch] [focus]` runs the `pr-review` skill |
 
 The skills follow the [Agent Skills](https://agentskills.io) format, so the same `SKILL.md` files also work in Claude Code and GitHub Copilot.
+
+Tool and prompt names start with `pitk_` / `pitk-` on purpose. Pi refuses to start when two extensions register a tool with the same name, so generic names like `dotnet` would clash with other packages. If another package also offers a dotnet or Azure DevOps tool, turn one of them off with `pi config` so the model has only one to choose from.
 
 ## Install
 
@@ -74,7 +76,7 @@ Project config, `.pi/guard.json` in the repository, can only **add** protection 
 
 Branch names match exactly. Globs like `release/*` are not supported yet.
 
-## azure_devops
+## pitk_azure_devops
 
 Actions: `pr_list`, `pr_get` (with linked work items), `pr_changes` (files in the latest iteration), `pr_threads` (review comments, without system messages), `work_item`.
 
@@ -96,11 +98,11 @@ Set the PAT for your user on Windows, then start a new terminal:
 
 If you get HTTP 401 or 203 even though the token is valid, check whether your organization has Conditional Access policies that block tokens from your current network.
 
-## dotnet
+## pitk_dotnet
 
 ```text
-dotnet  action=build                                   -> errors with file:line, warning count
-dotnet  action=test  filter=FullyQualifiedName~Orders  -> pass/fail counts, failed tests with message and stack
+pitk_dotnet  action=build                                   -> errors with file:line, warning count
+pitk_dotnet  action=test  filter=FullyQualifiedName~Orders  -> pass/fail counts, failed tests with message and stack
 ```
 
 Optional arguments: `target` (solution, project or folder), `configuration`, `noBuild`, `includeWarnings` and `timeoutSeconds` (default 600).

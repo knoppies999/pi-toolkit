@@ -1,7 +1,7 @@
 /**
  * Dotnet Extension
  *
- * Registers a `dotnet` tool that runs `dotnet build` or `dotnet test` and returns compact results:
+ * Registers a `pitk_dotnet` tool that runs `dotnet build` or `dotnet test` and returns compact results:
  * unique compiler errors (and warnings on request) with file:line, and failed tests with message and
  * stack trace read from TRX files, instead of thousands of lines of MSBuild log.
  *
@@ -32,13 +32,13 @@ const MAX_STACK_LINES = 8;
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "dotnet",
+		name: "pitk_dotnet",
 		label: "dotnet",
 		description:
 			"Run `dotnet build` or `dotnet test` and get a compact summary: compiler errors with file:line, and failed tests with message and stack trace. Prefer this over running dotnet through bash.",
 		promptSnippet: "Build and test .NET solutions with compact error and test-failure output",
 		promptGuidelines: [
-			"Use the dotnet tool rather than bash for dotnet build and dotnet test.",
+			"Use pitk_dotnet rather than bash for dotnet build and dotnet test.",
 			"After fixing compile errors, run dotnet build again before running tests.",
 			"Use filter to rerun only the failing tests while fixing them.",
 		],

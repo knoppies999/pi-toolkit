@@ -12,7 +12,7 @@ Review the change the user names: an Azure DevOps PR id, a GitHub PR number, a b
 
 Pick the first source that applies:
 
-- **Azure DevOps PR.** If an `azure_devops` tool is available, call it with `pr_get`, then `pr_changes`, then `pr_threads`. Read the title, description and linked work items first, because they say what the change is meant to do.
+- **Azure DevOps PR.** If the `pitk_azure_devops` tool is available, call it with `pr_get`, then `pr_changes`, then `pr_threads`. Read the title, description and linked work items first, because they say what the change is meant to do.
 - **GitHub PR.** Run `gh pr view <n> --json title,body,baseRefName,headRefName` and `gh pr diff <n>`.
 - **Local branch.** Find the target branch (usually `main` or `master`), then run `git diff <target>...HEAD --stat` and `git diff <target>...HEAD`.
 

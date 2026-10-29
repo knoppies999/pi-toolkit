@@ -1,7 +1,7 @@
 /**
  * Azure DevOps Extension
  *
- * Registers a read-only `azure_devops` tool for pull requests and work items, using the REST API (7.1).
+ * Registers a read-only `pitk_azure_devops` tool for pull requests and work items, using the REST API (7.1).
  *
  * Auth, first match wins:
  * - AZURE_DEVOPS_PAT or AZURE_DEVOPS_EXT_PAT: personal access token (Code: Read, Work Items: Read)
@@ -134,12 +134,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerTool({
-		name: "azure_devops",
+		name: "pitk_azure_devops",
 		label: "Azure DevOps",
 		description: `Read Azure DevOps pull requests (list, details, comment threads, changed files) and work items. Read-only. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
 		promptSnippet: "Read Azure DevOps pull requests, review threads and work items",
 		promptGuidelines: [
-			"Use azure_devops instead of guessing PR or work item contents; it infers org, project and repo from the git remote.",
+			"Use pitk_azure_devops instead of guessing PR or work item contents; it infers org, project and repo from the git remote.",
 			"For a PR review, call pr_get, then pr_changes, then pr_threads so you do not repeat comments that already exist.",
 		],
 		parameters: Params,

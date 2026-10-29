@@ -10,7 +10,7 @@ The repository's own conventions win. Before writing code, check `.editorconfig`
 
 ## Build and test loop
 
-- If the `dotnet` tool is available, use it instead of running `dotnet` through bash: `action: "build"` for compile errors, `action: "test"` with `filter` to rerun only what failed.
+- If the `pitk_dotnet` tool is available, use it instead of running `dotnet` through bash: `action: "build"` for compile errors, `action: "test"` with `filter` to rerun only what failed.
 - Fix compile errors before running tests. Fix the first error first; later ones are often caused by it.
 - Do not change `<TargetFramework>`, `<LangVersion>`, `global.json` or package versions to get past an error unless the user asks.
 - Package versions live in `Directory.Packages.props` when the repo uses central package management. Add `<PackageVersion>` there and a version-less `<PackageReference>` in the project.
